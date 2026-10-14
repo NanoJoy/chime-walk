@@ -1,14 +1,17 @@
-// The labyrinth half: stone-lined generated labyrinths in a meadow, a small
-// lantern-carrying walker, and a low camera that follows just behind it.
+// The labyrinth half: stone-walled generated labyrinths in a meadow, a small
+// lantern-carrying walker between head-high walls, and a low camera that
+// follows just behind it.
 import * as THREE from 'three';
 import { createEnvironment } from '../environment.js';
-import { earthTexture, grassTexture } from '../textures.js';
+import { earthTexture, grassTexture, gritTexture } from '../textures.js';
 import { rng } from '../noise.js';
 import { buildHex, wallStones } from './geometry.js';
 import { createWalker } from './walker.js';
 
-const CAMERA_PITCH = THREE.MathUtils.degToRad(18); // above the horizontal
+const CAMERA_PITCH = THREE.MathUtils.degToRad(22); // above the horizontal
 const LOOK_HEIGHT = 0.35; // aim at the walker's torso, not its feet
+const PATH_WIDTH = 1.5; // corridor width; the walker is about 0.6 tall
+const WALL_HEIGHT = 0.75; // dry-stone walls a little over head height
 
 function ribbon(lab, halfWidth, y, everyN = 2) {
   const idx = [];
@@ -49,6 +52,46 @@ function ribbon(lab, halfWidth, y, everyN = 2) {
   geo.computeVertexNormals();
   // Arc length at each segment start, for partial drawing.
   geo.userData.segmentS = idx.map((i) => lab.cum[i]);
+  return geo;
+}
+
+// The gritty wall filler: one box per wall segment, merged, with UVs in world
+// units (`tile` per repeat) so the grain is the same size on every face.
+function wallCores(walls, height, thick, tile = 0.6) {
+  const pos = [], nrm = [], uv = [], index = [];
+  const quad = (corners, n, uvs) => {
+    const base = pos.length / 3;
+    corners.forEach((c, k) => {
+      pos.push(...c);
+      nrm.push(...n);
+      uv.push(uvs[k][0] / tile, uvs[k][1] / tile);
+    });
+    index.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  };
+  for (const [ax, az, bx, bz] of walls) {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const dx = (bx - ax) / len, dz = (bz - az) / len; // along the wall
+    const nx = dz, nz = -dx; // across it
+    const t = thick / 2;
+    // Corner at distance a along the wall, b across, height y.
+    const at = (a, b, y) => [ax + dx * a + nx * b, y, az + dz * a + nz * b];
+    quad([at(0, t, 0), at(len, t, 0), at(len, t, height), at(0, t, height)], [nx, 0, nz],
+      [[0, 0], [len, 0], [len, height], [0, height]]);
+    quad([at(len, -t, 0), at(0, -t, 0), at(0, -t, height), at(len, -t, height)], [-nx, 0, -nz],
+      [[len, 0], [0, 0], [0, height], [len, height]]);
+    quad([at(0, t, height), at(len, t, height), at(len, -t, height), at(0, -t, height)], [0, 1, 0],
+      [[0, 0], [len, 0], [len, thick], [0, thick]]);
+    quad([at(0, -t, 0), at(0, t, 0), at(0, t, height), at(0, -t, height)], [-dx, 0, -dz],
+      [[0, 0], [thick, 0], [thick, height], [0, height]]);
+    quad([at(len, t, 0), at(len, -t, 0), at(len, -t, height), at(len, t, height)], [dx, 0, dz],
+      [[0, 0], [thick, 0], [thick, height], [0, height]]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(index);
   return geo;
 }
 
@@ -109,8 +152,7 @@ export function createLabyrinth(renderer, pane, bus) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 600);
 
-  const env = createEnvironment(renderer, scene, { fogDensity: 0.011, shadowExtent: 11.5, shadowDistance: 30 });
-  env.focus(new THREE.Vector3(0, 0, 0.8));
+  const env = createEnvironment(renderer, scene, { fogDensity: 0.011, shadowExtent: 7, shadowDistance: 30 });
 
   // Meadow.
   const grass = grassTexture();
@@ -133,6 +175,8 @@ export function createLabyrinth(renderer, pane, bus) {
   });
   const rock = rockGeometry(4);
   const stoneMat = new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true });
+  const grit = gritTexture();
+  const coreMat = new THREE.MeshStandardMaterial({ map: grit, bumpMap: grit, bumpScale: 1.5, roughness: 1 });
   // Centre stone, which glows softly on arrival.
   const slabMat = new THREE.MeshStandardMaterial({ color: 0xbab3a4, roughness: 0.85, emissive: 0xffd9a0, emissiveIntensity: 0 });
 
@@ -147,12 +191,12 @@ export function createLabyrinth(renderer, pane, bus) {
 
   function buildLayout(index) {
     const R = RADII[Math.min(index, RADII.length - 1)];
-    lab = buildHex({ R, mix: MIX, seed: index + 1 });
+    lab = buildHex({ R, mix: MIX, seed: index + 1, w: PATH_WIDTH });
 
     const group = new THREE.Group();
     // Worn verge, then packed earth down the middle of the path.
-    const verge = new THREE.Mesh(ribbon(lab, 0.47, 0.004), vergeMat);
-    const path = new THREE.Mesh(ribbon(lab, 0.36, 0.008), pathMat);
+    const verge = new THREE.Mesh(ribbon(lab, 0.47 * lab.w, 0.004), vergeMat);
+    const path = new THREE.Mesh(ribbon(lab, 0.3 * lab.w, 0.008), pathMat);
     verge.receiveShadow = path.receiveShadow = true;
     group.add(verge, path);
 
@@ -161,21 +205,42 @@ export function createLabyrinth(renderer, pane, bus) {
     trailGeo.setDrawRange(0, 0);
     group.add(new THREE.Mesh(trailGeo, trailMat));
 
-    // Stones.
-    const stones = wallStones(lab);
-    const r = rng(19 + index);
-    const stoneMesh = new THREE.InstancedMesh(rock, stoneMat, stones.length);
+    // Walls: a gritty core along each wall segment, so nothing shows through,
+    // dressed with columns of stones stacked to WALL_HEIGHT, smaller toward the top.
+    // About 15k stones at the largest size.
+    const core = new THREE.Mesh(wallCores(lab.walls, WALL_HEIGHT * 0.9, 0.14), coreMat);
+    core.castShadow = core.receiveShadow = true;
+    group.add(core);
+
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
     const sc = new THREE.Vector3();
     const p = new THREE.Vector3();
+
+    const r = rng(19 + index);
+    const placed = [];
+    for (const st of wallStones(lab, { spacing: 0.2, minGap: 0.15 })) {
+      let top = 0;
+      // Shrink toward the top, but never below 60%, so every column reaches the top.
+      for (let layer = 0; top < WALL_HEIGHT && layer < 12; layer++) {
+        const s = (0.13 + r() * 0.05) * Math.max(0.6, 1 - 0.1 * layer);
+        const sy = s * (0.5 + r() * 0.3);
+        const jitter = 0.03 + 0.01 * layer;
+        placed.push({
+          x: st.x + (r() - 0.5) * jitter * 2,
+          y: top + sy * 0.35,
+          z: st.z + (r() - 0.5) * jitter * 2,
+          sx: s * (0.9 + r() * 0.4), sy, sz: s * (0.9 + r() * 0.4),
+        });
+        top += sy * 1.35;
+      }
+    }
+    const stoneMesh = new THREE.InstancedMesh(rock, stoneMat, placed.length);
     const tint = new THREE.Color();
-    stones.forEach((st, i) => {
-      const s = 0.085 + r() * 0.05;
-      sc.set(s * (0.9 + r() * 0.4), s * (0.55 + r() * 0.45), s * (0.9 + r() * 0.4));
+    placed.forEach((st, i) => {
       q.setFromEuler(e.set((r() - 0.5) * 0.3, r() * Math.PI * 2, (r() - 0.5) * 0.3));
-      m.compose(p.set(st.x, sc.y * 0.3, st.z), q, sc);
+      m.compose(p.set(st.x, st.y, st.z), q, sc.set(st.sx, st.sy, st.sz));
       stoneMesh.setMatrixAt(i, m);
       const ochre = r() < 0.25;
       stoneMesh.setColorAt(i, tint.setHSL(ochre ? 0.08 + r() * 0.03 : 0.1 + r() * 0.05, ochre ? 0.22 : 0.03 + r() * 0.07, 0.24 + r() * 0.2));
@@ -211,7 +276,7 @@ export function createLabyrinth(renderer, pane, bus) {
   }
 
   // Camera rig.
-  const view = { distance: 2.4 };
+  const view = { distance: 1.7 };
   const target = new THREE.Vector3();
   const pt = {};
   let yaw = 0;
@@ -302,6 +367,7 @@ export function createLabyrinth(renderer, pane, bus) {
       target.z + view.distance * Math.cos(CAMERA_PITCH),
     );
     camera.lookAt(target);
+    env.focus(target);
   }
   const scratch = new THREE.Vector3();
 

@@ -251,7 +251,7 @@ function smooth(pts, sigma) {
  * near-duplicates removed. Hex layouts line their wall segments; the classical
  * one lines both edges of the path plus the outer and centre rings.
  */
-export function wallStones(lab, { spacing = 0.19, jitter = 0.035, seed = 3 } = {}) {
+export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13, seed = 3 } = {}) {
   const { w, centre, outer, xs, zs, count } = lab;
   let s = seed;
   const rand = () => {
@@ -282,7 +282,6 @@ export function wallStones(lab, { spacing = 0.19, jitter = 0.035, seed = 3 } = {
   const sCell = 0.1 * w;
   const sKey = (x, z) => `${Math.floor(x / sCell)},${Math.floor(z / sCell)}`;
   const sGrid = new Map();
-  const minGap = 0.13 * w;
   function tryAdd(x, z) {
     x += (rand() - 0.5) * jitter * 2;
     z += (rand() - 0.5) * jitter * 2;
