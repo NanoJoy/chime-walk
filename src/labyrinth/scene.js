@@ -201,7 +201,7 @@ export function createLabyrinth(renderer, pane, bus) {
     scene.add(layout);
 
     if (walker) walker.reset(lab.length);
-    else walker = createWalker(pane, lab.length);
+    else walker = createWalker(lab.length, Math.cos(CAMERA_TILT));
     lab.pointAt(0, pt);
     yaw = Math.atan2(pt.tx, pt.tz);
     arrived = false;
@@ -249,7 +249,8 @@ export function createLabyrinth(renderer, pane, bus) {
   }
 
   function update(dt) {
-    const w = walker.update(dt);
+    lab.pointAt(walker.state.s, pt);
+    const w = walker.update(dt, pt.tx, pt.tz);
     lab.pointAt(w.s, pt);
 
     // Face the direction of travel; ease the turn so U-bends feel unhurried.
@@ -278,7 +279,7 @@ export function createLabyrinth(renderer, pane, bus) {
     arrived = atCentre;
 
     // Rest at the centre, then a fresh step forward starts the next labyrinth.
-    const forward = walker.input.keyFwd || walker.input.hold;
+    const forward = walker.input.active;
     if (!atCentre) readyToMoveOn = false;
     else if (!forward && glow > 0.6) readyToMoveOn = true;
     else if (forward && readyToMoveOn) {
