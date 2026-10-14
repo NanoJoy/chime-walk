@@ -84,6 +84,46 @@ export function earthTexture() {
   });
 }
 
+// Grey stone grit for the wall filler: soft blotches, fine grain and small
+// flecks, all low in contrast and nearly colourless.
+export function gritTexture() {
+  return canvasTexture(512, 512, (ctx, w, h) => {
+    const r = rng(29);
+    ctx.fillStyle = hsl(40, 4, 40);
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 120; i++) {
+      const x = r() * w, y = r() * h, rad = 20 + r() * 70;
+      wrapped(ctx, w, h, x, y, (px, py) => {
+        const g = ctx.createRadialGradient(px, py, 0, px, py, rad);
+        g.addColorStop(0, hsl(35 + r() * 15, 3 + r() * 4, 30 + r() * 22, 0.25));
+        g.addColorStop(1, hsl(40, 4, 40, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+      });
+    }
+    // Per-pixel grain.
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    for (let k = 0; k < d.length; k += 4) {
+      const n = (r() + r() - 1) * 34;
+      d[k] += n;
+      d[k + 1] += n;
+      d[k + 2] += n;
+    }
+    ctx.putImageData(img, 0, 0);
+    // Flecks: mostly dark pits, some pale grains.
+    for (let i = 0; i < 7000; i++) {
+      const x = r() * w, y = r() * h, rad = 0.5 + r() * r() * 3;
+      ctx.fillStyle = r() < 0.6 ? hsl(35, 4, 16 + r() * 14, 0.6) : hsl(40, 3, 58 + r() * 20, 0.5);
+      wrapped(ctx, w, h, x, y, (px, py) => {
+        ctx.beginPath();
+        ctx.ellipse(px, py, rad, rad * (0.6 + r() * 0.4), r() * 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  });
+}
+
 // Grain runs along the texture's U axis.
 export function woodTexture(hue = 30) {
   return canvasTexture(1024, 256, (ctx, w, h) => {
