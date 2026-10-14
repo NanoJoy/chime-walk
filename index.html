@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Wind Chimes</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <!-- Transparent panes over the canvas route pointer input to each half. -->
+  <div id="chimes-pane" class="pane"></div>
+  <div id="labyrinth-pane" class="pane"></div>
+  <div id="divider"></div>
+
+  <details id="panel" open>
+    <summary>Chimes</summary>
+    <div class="group">
+      <label>Arrangement</label>
+      <div class="seg" id="layout">
+        <button data-value="round" class="on">Round</button>
+        <button data-value="flat">Flat</button>
+      </div>
+    </div>
+    <div class="group row">
+      <label for="tubes">Tubes <output id="tubes-out">6</output></label>
+      <input id="tubes" type="range" min="5" max="8" step="1" value="6" />
+    </div>
+    <div class="group two">
+      <div>
+        <label for="finish">Finish</label>
+        <select id="finish">
+          <option value="aluminium">Aluminium</option>
+          <option value="brass">Brass</option>
+        </select>
+      </div>
+      <div>
+        <label for="tuning">Tuning</label>
+        <select id="tuning">
+          <option value="major">Major pent.</option>
+          <option value="minor">Minor pent.</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="group">
+      <label>Wind source <span class="hint">drag the dot, or the glow in the scene</span></label>
+      <div id="compass">
+        <div class="ring"></div>
+        <div class="centre"></div>
+        <div class="you">you</div>
+        <div id="compass-dot"></div>
+      </div>
+    </div>
+    <div class="group row">
+      <label for="strength">Strength <output id="strength-out"></output></label>
+      <input id="strength" type="range" min="0" max="12" step="0.1" value="4" />
+    </div>
+    <div class="group row">
+      <label for="gust">Gustiness <output id="gust-out"></output></label>
+      <input id="gust" type="range" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+    <div class="group">
+      <div class="seg" id="presets">
+        <button data-preset="calm">Calm</button>
+        <button data-preset="breezy">Breezy</button>
+        <button data-preset="stormy">Stormy</button>
+      </div>
+    </div>
+    <div class="group row">
+      <label for="volume">Volume</label>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.7" />
+    </div>
+  </details>
+
+  <div id="lab-hud">
+    <span id="lab-status">At the entrance</span>
+    <span class="hint">hold <kbd>W</kbd>/<kbd>↑</kbd> or press and hold here to walk · <kbd>S</kbd>/<kbd>↓</kbd> to step back</span>
+  </div>
+
+  <div id="begin">
+    <div class="card">
+      <h1>Wind Chimes</h1>
+      <p>Let the wind find the chimes, and walk the labyrinth below.</p>
+      <button id="begin-btn">Begin (sound on)</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

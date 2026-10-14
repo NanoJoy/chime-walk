@@ -1,0 +1,291 @@
+<meta charset="utf-8">
+<title>Hex Labyrinth Samples</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: a quiet field-notebook page; two method sections, each a comparison row then a size ladder. */
+  :root {
+    --ink: #2f2a22;
+    --ink-soft: #6b6152;
+    --paper: #f3eee2;
+    --card: #faf7ef;
+    --line: rgba(80, 66, 44, 0.18);
+    --accent: #8a6a3f;
+    --path: rgba(196, 150, 84, 0.38);
+    --bad: #a3392b;
+    --good: #4f6b3a;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #eee6d6; --ink-soft: #b5aa96; --paper: #1d1a15; --card: #26221b;
+      --line: rgba(238, 225, 200, 0.16); --accent: #d2b07a; --path: rgba(210, 176, 122, 0.30);
+      --bad: #e08572; --good: #a8c48c; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #eee6d6; --ink-soft: #b5aa96; --paper: #1d1a15; --card: #26221b;
+    --line: rgba(238, 225, 200, 0.16); --accent: #d2b07a; --path: rgba(210, 176, 122, 0.30);
+    --bad: #e08572; --good: #a8c48c; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 15px/1.5 var(--serif);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 28px 56px;
+  }
+  main { max-width: 1180px; margin: 0 auto; display: grid; gap: 40px; }
+  h1, h2, h3 { font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: 30px; letter-spacing: -0.01em; }
+  h2 { font-size: 22px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); font-weight: 600; }
+  p { margin: 0; max-width: 68ch; color: var(--ink-soft); }
+  header { display: grid; gap: 10px; }
+  section { display: grid; gap: 18px; border-top: 1px solid var(--line); padding-top: 24px; }
+  .block { display: grid; gap: 12px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  label { font-size: 13px; color: var(--ink-soft); display: inline-flex; gap: 8px; align-items: center; }
+  input, select, button { font: 14px var(--serif); color: var(--ink); }
+  input[type="number"], select {
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+  }
+  input[type="number"] { width: 5.5em; font-variant-numeric: tabular-nums; }
+  button {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 999px; padding: 5px 14px; cursor: pointer;
+  }
+  button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .grid { display: grid; gap: 14px; }
+  .grid.compare { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .grid.ladder { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  figure {
+    margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; display: grid; gap: 8px; cursor: zoom-in; min-width: 0;
+  }
+  figure:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  svg { width: 100%; height: auto; display: block; aspect-ratio: 1; max-width: 100%; }
+  figcaption { display: grid; gap: 2px; font-size: 13px; }
+  .name { color: var(--ink); font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+  .stats { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .badge { font-family: var(--mono); font-size: 11px; font-weight: 400; }
+  .badge.ok { color: var(--good); }
+  .badge.bad { color: var(--bad); }
+  .wall { stroke: var(--ink); stroke-linecap: round; fill: none; }
+  .rim { stroke: var(--ink); fill: none; }
+  .route { stroke: var(--path); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .goal { fill: var(--accent); }
+  .start { fill: var(--paper); stroke: var(--accent); }
+  .hide-path .route { display: none; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink);
+    padding: 16px; width: min(92vw, 820px); max-height: 92vh;
+  }
+  dialog::backdrop { background: rgba(20, 16, 10, 0.55); }
+  dialog .bar { justify-content: space-between; margin-bottom: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-soft); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 22px; height: 8px; border-radius: 4px; background: var(--path); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .ring { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--accent); }
+</style>
+
+<main>
+  <header>
+    <h1>Hex Labyrinth Samples</h1>
+    <p>Generated single-path labyrinths for the chime walk. Every one fills a hexagon, enters at the rim and ends at the centre. Click any sample to see it large.</p>
+    <div class="bar">
+      <label for="seed">Seed <input id="seed" type="number" min="1" value="1"></label>
+      <button id="reseed" type="button">New seed</button>
+      <label for="show-path"><input id="show-path" type="checkbox" checked> Show the walking line</label>
+    </div>
+    <div class="legend">
+      <span><i class="ring"></i>entrance</span>
+      <span><i class="dot"></i>centre</span>
+      <span><i class="sw"></i>walking line</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Backbite on hex cells</h2>
+    <p>Starts as concentric rings walked in alternating directions, then loosened by backbite moves on the outer end while the centre end stays put. "Mix" is moves per cell: low keeps the big loops, high gives a winding space-filler. Corridors are one hex wide.</p>
+    <div class="block">
+      <h3>Mix compared · radius 5</h3>
+      <div class="grid compare" id="bb-compare"></div>
+    </div>
+    <div class="block">
+      <div class="bar">
+        <h3>Size ladder</h3>
+        <label for="bb-mix">Mix
+          <select id="bb-mix">
+            <option value="0">0 (pure rings)</option>
+            <option value="0.3">0.3</option>
+            <option value="0.5" selected>0.5</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="10">10</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid ladder" id="bb-ladder"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Maze-doubling on hex kites</h2>
+    <p>Each hex is split into six kites. Walking around a random spanning tree of the hexes passes through every kite once, making a closed loop. The loop is cut at the centre, and a few backbite moves walk the loose end out to the rim. The tree style decides the character; "rings" prefers tree edges that run around the centre, which makes long circling corridors.</p>
+    <div class="block">
+      <h3>Tree style compared · radius 4</h3>
+      <div class="grid compare" id="db-compare"></div>
+    </div>
+    <div class="block">
+      <div class="bar">
+        <h3>Size ladder</h3>
+        <label for="db-tree">Tree
+          <select id="db-tree">
+            <option value="rings" selected>Rings</option>
+            <option value="dfs">Long corridors (DFS)</option>
+            <option value="wilson">Uniform (Wilson)</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid ladder" id="db-ladder"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="zoom">
+  <div class="bar"><strong id="zoom-title"></strong><button id="zoom-close" type="button">Close</button></div>
+  <div id="zoom-body"></div>
+</dialog>
+
+<script type="module">
+  import { backbiteLabyrinth, doubledLabyrinth, validate, walls, sweep } from './src/labyrinth/hexgen.js';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const TREE_NAMES = { wilson: 'Uniform (Wilson)', dfs: 'Long corridors (DFS)', rings: 'Rings' };
+
+  // Corner-cutting keeps the walking line soft without leaving its cells.
+  function chaikin(pts, rounds = 2) {
+    for (let r = 0; r < rounds; r++) {
+      const out = [pts[0]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [a, b] = [pts[i], pts[i + 1]];
+        out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+        out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+      }
+      out.push(pts[pts.length - 1]);
+      pts = out;
+    }
+    return pts;
+  }
+
+  function el(tag, attrs = {}, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function draw(lab) {
+    const kite = lab.method === 'doubled';
+    const W = walls(lab);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [a, b] of W) for (const p of [a, b]) {
+      minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+      minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+    }
+    const size = Math.max(maxX - minX, maxY - minY);
+    const pad = size * 0.05;
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const svg = el('svg', {
+      viewBox: `${cx - size / 2 - pad} ${cy - size / 2 - pad} ${size + 2 * pad} ${size + 2 * pad}`,
+      role: 'img',
+      'aria-label': `Labyrinth, radius ${lab.R}`,
+    });
+    // Wall weight follows corridor width so small and large mazes read alike.
+    const corridor = kite ? 0.75 : 1.5;
+    const wallW = Math.max(corridor * 0.16, size * 0.004);
+    el('polyline', {
+      class: 'route',
+      points: chaikin(lab.points).map((p) => p.join(',')).join(' '),
+      'stroke-width': corridor * 0.55,
+    }, svg);
+    const d = W.map(([a, b]) => `M${a[0].toFixed(3)},${a[1].toFixed(3)}L${b[0].toFixed(3)},${b[1].toFixed(3)}`).join('');
+    el('path', { class: 'wall', d, 'stroke-width': wallW }, svg);
+    const [sx, sy] = lab.points[0];
+    const [gx, gy] = lab.points[lab.points.length - 1];
+    el('circle', { class: 'start', cx: sx, cy: sy, r: corridor * 0.22, 'stroke-width': wallW * 0.8 }, svg);
+    el('circle', { class: 'goal', cx: gx, cy: gy, r: corridor * 0.26 }, svg);
+    return svg;
+  }
+
+  function card(title, lab) {
+    const fig = document.createElement('figure');
+    fig.tabIndex = 0;
+    const problems = validate(lab);
+    const s = sweep(lab);
+    fig.appendChild(draw(lab));
+    const cap = document.createElement('figcaption');
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = title;
+    const badge = document.createElement('span');
+    badge.className = `badge ${problems.length ? 'bad' : 'ok'}`;
+    badge.textContent = problems.length ? 'invalid' : 'valid';
+    if (problems.length) badge.title = problems.join('; ');
+    name.appendChild(badge);
+    const stats = document.createElement('div');
+    stats.className = 'stats';
+    stats.textContent = `${lab.cells.length} cells · ${s.laps.toFixed(1)} laps · longest sweep ${s.longestLap.toFixed(2)}`;
+    cap.append(name, stats);
+    if (problems.length) {
+      const why = document.createElement('div');
+      why.className = 'stats badge bad';
+      why.textContent = problems.join('; ');
+      cap.appendChild(why);
+    }
+    fig.appendChild(cap);
+    const open = () => {
+      $('zoom-title').textContent = `${title} · ${stats.textContent}`;
+      $('zoom-body').replaceChildren(draw(lab));
+      $('zoom').showModal();
+    };
+    fig.addEventListener('click', open);
+    fig.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    return fig;
+  }
+
+  function fill(id, items) {
+    $(id).replaceChildren(...items.map(([title, make]) => {
+      try { return card(title, make()); }
+      catch (e) {
+        const f = document.createElement('figure');
+        f.innerHTML = `<figcaption><div class="name">${title}<span class="badge bad">failed</span></div><div class="stats">${e.message}</div></figcaption>`;
+        return f;
+      }
+    }));
+  }
+
+  function render() {
+    const seed = Math.max(1, Number($('seed').value) || 1);
+    const mix = Number($('bb-mix').value);
+    const tree = $('db-tree').value;
+    fill('bb-compare', [0, 0.5, 2, 10].map((m) => [`Mix ${m}`, () => backbiteLabyrinth({ R: 5, mix: m, seed })]));
+    fill('bb-ladder', Array.from({ length: 10 }, (_, i) => i + 2).map((R) => [`Radius ${R}`, () => backbiteLabyrinth({ R, mix, seed })]));
+    fill('db-compare', ['rings', 'dfs', 'wilson'].map((t) => [TREE_NAMES[t], () => doubledLabyrinth({ R: 4, tree: t, seed })]));
+    fill('db-ladder', Array.from({ length: 10 }, (_, i) => i + 1).map((R) => [`Radius ${R}`, () => doubledLabyrinth({ R, tree, seed })]));
+  }
+
+  $('seed').addEventListener('change', render);
+  $('reseed').addEventListener('click', () => { $('seed').value = 1 + Math.floor(Math.random() * 9999); render(); });
+  $('bb-mix').addEventListener('change', render);
+  $('db-tree').addEventListener('change', render);
+  $('show-path').addEventListener('change', (e) => document.body.classList.toggle('hide-path', !e.target.checked));
+  $('zoom-close').addEventListener('click', () => $('zoom').close());
+  $('zoom').addEventListener('click', (e) => { if (e.target === $('zoom')) $('zoom').close(); });
+  render();
+</script>
