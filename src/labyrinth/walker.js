@@ -8,8 +8,8 @@ export function createWalker(length, foreshorten = 1) {
   const input = { active: false };
   const state = { s: 0, v: 0, pace: 0.85 }; // pace in path widths per second
 
-  // Screen vectors, x right and y down (like world +z). Diagonals follow the
-  // hex steps (60° from horizontal on the ground) as the tilted camera sees them.
+  // Ground bearings as seen from the north-facing camera: x east, y south
+  // (world +z). Diagonals follow the hex steps, 60° from east-west on the ground.
   const dy = Math.sin(Math.PI / 3) * foreshorten;
   const dirs = {
     KeyQ: [-0.5, -dy], KeyW: [0, -1], KeyE: [0.5, -dy],
