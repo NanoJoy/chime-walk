@@ -1,5 +1,5 @@
 // The labyrinth half: stone-lined generated labyrinths in a meadow, a small
-// lantern-carrying walker, and a camera that follows at a calm distance.
+// lantern-carrying walker, and a low camera that follows just behind it.
 import * as THREE from 'three';
 import { createEnvironment } from '../environment.js';
 import { earthTexture, grassTexture } from '../textures.js';
@@ -7,7 +7,8 @@ import { rng } from '../noise.js';
 import { buildHex, wallStones } from './geometry.js';
 import { createWalker } from './walker.js';
 
-const CAMERA_TILT = THREE.MathUtils.degToRad(36); // from vertical
+const CAMERA_PITCH = THREE.MathUtils.degToRad(18); // above the horizontal
+const LOOK_HEIGHT = 0.35; // aim at the walker's torso, not its feet
 
 function ribbon(lab, halfWidth, y, everyN = 2) {
   const idx = [];
@@ -106,7 +107,7 @@ const MIX = 2;
 
 export function createLabyrinth(renderer, pane, bus) {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 600);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 600);
 
   const env = createEnvironment(renderer, scene, { fogDensity: 0.011, shadowExtent: 11.5, shadowDistance: 30 });
   env.focus(new THREE.Vector3(0, 0, 0.8));
@@ -201,7 +202,7 @@ export function createLabyrinth(renderer, pane, bus) {
     scene.add(layout);
 
     if (walker) walker.reset(lab.length);
-    else walker = createWalker(lab.length, Math.cos(CAMERA_TILT));
+    else walker = createWalker(lab.length);
     lab.pointAt(0, pt);
     yaw = Math.atan2(pt.tx, pt.tz);
     arrived = false;
@@ -210,7 +211,7 @@ export function createLabyrinth(renderer, pane, bus) {
   }
 
   // Camera rig.
-  const view = { distance: 9 };
+  const view = { distance: 2.4 };
   const target = new THREE.Vector3();
   const pt = {};
   let yaw = 0;
@@ -223,11 +224,11 @@ export function createLabyrinth(renderer, pane, bus) {
 
   buildLayout(level);
   lab.pointAt(0, pt);
-  target.set(pt.x, 0, pt.z);
+  target.set(pt.x, LOOK_HEIGHT, pt.z);
 
   pane.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    view.distance = THREE.MathUtils.clamp(view.distance * Math.exp(ev.deltaY * 0.0012), 3.5, 30);
+    view.distance = THREE.MathUtils.clamp(view.distance * Math.exp(ev.deltaY * 0.0012), 1.2, 10);
   }, { passive: false });
 
   function statusText(s, ring) {
@@ -293,12 +294,12 @@ export function createLabyrinth(renderer, pane, bus) {
     }
     status = statusText(w.s, pt.circuit);
 
-    // Follow camera: fixed bearing (entrance toward the viewer), soft lag.
-    target.lerp(scratch.set(pt.x, 0, pt.z), 1 - Math.exp(-dt * 1.8));
+    // Follow camera: fixed north bearing, low and just behind (south of) the walker, soft lag.
+    target.lerp(scratch.set(pt.x, LOOK_HEIGHT, pt.z), 1 - Math.exp(-dt * 3));
     camera.position.set(
       target.x,
-      target.y + view.distance * Math.cos(CAMERA_TILT),
-      target.z + view.distance * Math.sin(CAMERA_TILT),
+      target.y + view.distance * Math.sin(CAMERA_PITCH),
+      target.z + view.distance * Math.cos(CAMERA_PITCH),
     );
     camera.lookAt(target);
   }
