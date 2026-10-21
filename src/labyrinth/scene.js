@@ -5,13 +5,14 @@ import * as THREE from 'three';
 import { createEnvironment } from '../environment.js';
 import { earthTexture, grassTexture, gritTexture } from '../textures.js';
 import { rng } from '../noise.js';
-import { buildHex, courseStones } from './geometry.js';
+import { buildHex, courseStones, pathTracker, wallCollider } from './geometry.js';
 import { createWalker } from './walker.js';
 
 const CAMERA_PITCH = THREE.MathUtils.degToRad(30); // above the horizontal
 const LOOK_HEIGHT = 0.35; // aim at the walker's torso, not its feet
 const PATH_WIDTH = 1.5; // corridor width; the walker is about 0.6 tall
 const WALL_HEIGHT = 0.75; // dry-stone walls a little over head height
+const BODY_RADIUS = 0.29; // wall half-thickness, stone bulge and robe
 
 function ribbon(lab, halfWidth, y, everyN = 2) {
   const idx = [];
@@ -204,6 +205,9 @@ export function createLabyrinth(renderer, pane, bus) {
   let layout = null;
   let trailGeo = null;
   let walker = null;
+  let collide = null;
+  let track = null;
+  let s = 0;
 
   function buildLayout(index) {
     const R = RADII[Math.min(index, RADII.length - 1)];
@@ -275,9 +279,19 @@ export function createLabyrinth(renderer, pane, bus) {
     layout = group;
     scene.add(layout);
 
-    if (walker) walker.reset(lab.length);
-    else walker = createWalker(lab.length);
+    // Walls, plus a wide fence round the meadow so the walker cannot wander off.
+    const walls = wallCollider(lab, BODY_RADIUS);
+    const fence = lab.outer + 3 * lab.w;
+    collide = (x, z) => {
+      [x, z] = walls(x, z);
+      const r = Math.hypot(x, z);
+      return r > fence ? [(x * fence) / r, (z * fence) / r] : [x, z];
+    };
+    track = pathTracker(lab);
+    s = 0;
     lab.pointAt(0, pt);
+    if (walker) walker.reset(pt.x, pt.z);
+    else walker = createWalker(pt.x, pt.z);
     yaw = Math.atan2(pt.tx, pt.tz);
     arrived = false;
     readyToMoveOn = false;
@@ -305,10 +319,10 @@ export function createLabyrinth(renderer, pane, bus) {
     view.distance = THREE.MathUtils.clamp(view.distance * Math.exp(ev.deltaY * 0.0012), 1.2, 10);
   }, { passive: false });
 
-  function statusText(s, ring) {
+  function statusText(s, ring, atCentre) {
     const name = `Labyrinth ${level + 1}`;
     if (s <= 0.01) return `${name} · At the entrance`;
-    if (s >= lab.length - 0.05) {
+    if (atCentre) {
       const next = level + 1 < RADII.length ? 'walk on for a larger one' : 'walk on for another';
       return `${name} · The centre · ${next}`;
     }
@@ -324,29 +338,30 @@ export function createLabyrinth(renderer, pane, bus) {
   }
 
   function update(dt) {
-    lab.pointAt(walker.state.s, pt);
-    const w = walker.update(dt, pt.tx, pt.tz);
-    lab.pointAt(w.s, pt);
+    const w = walker.update(dt, collide);
+    s = track(w.x, w.z, s);
+    lab.pointAt(s, pt);
 
-    // Face the direction of travel; ease the turn so U-bends feel unhurried.
-    if (Math.abs(w.v) > 0.02) {
-      const want = Math.atan2(pt.tx * Math.sign(w.v), pt.tz * Math.sign(w.v));
-      let d = want - yaw;
+    // Face the direction of travel; ease the turn so it feels unhurried.
+    const speed = Math.hypot(w.vx, w.vz);
+    if (speed > 0.05) {
+      let d = Math.atan2(w.vx, w.vz) - yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       yaw += d * (1 - Math.exp(-dt * 6));
     }
-    bob += Math.abs(w.v) * dt * 9;
-    figure.group.position.set(pt.x, Math.abs(Math.sin(bob)) * 0.018, pt.z);
+    bob += speed * dt * 9;
+    figure.group.position.set(w.x, Math.abs(Math.sin(bob)) * 0.018, w.z);
     figure.group.rotation.y = yaw;
 
     // Light the trail behind the walker.
     const segS = trailGeo.userData.segmentS;
     let k = 0;
-    while (k < segS.length - 1 && segS[k + 1] <= w.s) k++;
+    while (k < segS.length - 1 && segS[k + 1] <= s) k++;
     trailGeo.setDrawRange(0, k * 6);
 
     // Arrival.
-    const atCentre = w.s >= lab.length - 0.05;
+    const end = lab.count - 1;
+    const atCentre = Math.hypot(w.x - lab.xs[end], w.z - lab.zs[end]) < 0.35 * lab.w;
     glow += ((atCentre ? 1 : 0) - glow) * (1 - Math.exp(-dt * 0.8));
     slabMat.emissiveIntensity = glow * 0.35;
     figure.light.intensity = 1.4 + glow * 1.6;
@@ -362,14 +377,14 @@ export function createLabyrinth(renderer, pane, bus) {
       return;
     }
 
-    if (w.s !== lastS) {
-      lastS = w.s;
-      bus.emit('labyrinth:progress', { s: w.s, length: lab.length, circuit: pt.circuit, level });
+    if (s !== lastS) {
+      lastS = s;
+      bus.emit('labyrinth:progress', { s, length: lab.length, circuit: pt.circuit, level });
     }
-    status = statusText(w.s, pt.circuit);
+    status = statusText(s, pt.circuit, atCentre);
 
     // Follow camera: fixed north bearing, low and just behind (south of) the walker, soft lag.
-    target.lerp(scratch.set(pt.x, LOOK_HEIGHT, pt.z), 1 - Math.exp(-dt * 3));
+    target.lerp(scratch.set(w.x, LOOK_HEIGHT, w.z), 1 - Math.exp(-dt * 3));
     camera.position.set(
       target.x,
       target.y + view.distance * Math.sin(CAMERA_PITCH),

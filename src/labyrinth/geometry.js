@@ -270,6 +270,86 @@ function pathDistance(lab) {
 }
 
 /**
+ * Keeps a round body of the given radius out of a hex layout's walls, each
+ * treated as a capsule round its segment. Returns (x, z) => [x, z].
+ */
+export function wallCollider(lab, radius) {
+  const cell = lab.w;
+  const grid = new Map();
+  for (const seg of lab.walls) {
+    const [ax, az, bx, bz] = seg;
+    const x0 = Math.floor((Math.min(ax, bx) - radius) / cell), x1 = Math.floor((Math.max(ax, bx) + radius) / cell);
+    const z0 = Math.floor((Math.min(az, bz) - radius) / cell), z1 = Math.floor((Math.max(az, bz) + radius) / cell);
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+      const k = `${cx},${cz}`;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(seg);
+    }
+  }
+  return (x, z) => {
+    const list = grid.get(`${Math.floor(x / cell)},${Math.floor(z / cell)}`);
+    if (!list) return [x, z];
+    // Two passes settle corners, where pushing off one wall lands in the next.
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [ax, az, bx, bz] of list) {
+        const dx = bx - ax, dz = bz - az;
+        const len2 = dx * dx + dz * dz || 1;
+        const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / len2));
+        const px = x - (ax + dx * t), pz = z - (az + dz * t);
+        const d = Math.hypot(px, pz);
+        if (d >= radius) continue;
+        if (d < 1e-9) {
+          // Dead on the wall's line: step out to one side of it.
+          const l = Math.sqrt(len2);
+          x += (-dz / l) * radius;
+          z += (dx / l) * radius;
+        } else {
+          x += (px / d) * (radius - d);
+          z += (pz / d) * (radius - d);
+        }
+      }
+    }
+    return [x, z];
+  };
+}
+
+/**
+ * Follows a free-walking point along the centreline: (x, z, sPrev) gives the
+ * arc length of the nearest centreline sample within `reach` of sPrev. Looking
+ * only near the last answer keeps it from jumping through a wall to the
+ * corridor beside, which is always much further along the path. Off the path
+ * (out in the meadow, beyond the outer wall) it holds sPrev, so walking round
+ * the outside does not creep along the outermost corridor.
+ */
+export function pathTracker(lab, reach = 0.6) {
+  // Inside a corridor the body stays within about 0.48 w of the centreline;
+  // outside the outer wall it is at least 0.5 w plus its radius away.
+  const maxOff2 = (0.58 * lab.w) ** 2;
+  const { xs, zs, cum, count } = lab;
+  const indexAt = (s) => {
+    let lo = 0, hi = count - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= s) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+  return (x, z, sPrev) => {
+    const i0 = indexAt(sPrev - reach), i1 = Math.min(count - 1, indexAt(sPrev + reach) + 1);
+    let best = i0, bestD = Infinity;
+    for (let i = i0; i <= i1; i++) {
+      const d = (xs[i] - x) ** 2 + (zs[i] - z) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return bestD <= maxOff2 ? cum[best] : sPrev;
+  };
+}
+
+/**
  * Stone positions for the walls, with stones pulled out of the walkway and
  * near-duplicates removed. Hex layouts line their wall segments; the classical
  * one lines both edges of the path plus the outer and centre rings.

@@ -1,27 +1,20 @@
-// Turns input into slow, eased motion along the path's arc length.
+// Turns input into slow, eased motion over the ground.
 //
-// Keys point in screen directions; the walker goes forward or back along the
-// path by however much the path heads that way. The hex steps on screen are
-// W, NW, NE, E, SE, SW, plus N/S for the straight way in.
-export function createWalker(length, foreshorten = 1) {
+// WASD or the arrow keys walk in screen directions; the camera faces north,
+// so that is x east and z south on the ground. Walls are left to the caller's
+// collide(x, z), which pushes a point back out of them.
+export function createWalker(x = 0, z = 0) {
   const held = new Set();
   const input = { active: false };
-  const state = { s: 0, v: 0, pace: 0.85 }; // pace in path widths per second
+  const state = { x, z, vx: 0, vz: 0, pace: 0.9 }; // pace in world units per second
 
-  // Ground bearings as seen from the north-facing camera: x east, y south
-  // (world +z). Diagonals follow the hex steps, 60° from east-west on the ground.
-  const dy = Math.sin(Math.PI / 3) * foreshorten;
   const dirs = {
-    KeyQ: [-0.5, -dy], KeyW: [0, -1], KeyE: [0.5, -dy],
-    KeyA: [-1, 0], KeyS: [0, 1], KeyD: [1, 0],
-    KeyZ: [-0.5, dy], KeyC: [0.5, dy],
+    KeyW: [0, -1], ArrowUp: [0, -1],
+    KeyS: [0, 1], ArrowDown: [0, 1],
+    KeyA: [-1, 0], ArrowLeft: [-1, 0],
+    KeyD: [1, 0], ArrowRight: [1, 0],
   };
-  for (const d of Object.values(dirs)) {
-    const l = Math.hypot(d[0], d[1]);
-    d[0] /= l;
-    d[1] /= l;
-  }
-  const DEAD_ZONE = 0.2;
+  const MAX_STEP = 0.05; // sub-step length, well under a wall's thickness
   const typing = (e) => /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.target.type !== 'range';
 
   window.addEventListener('keydown', (e) => {
@@ -39,37 +32,43 @@ export function createWalker(length, foreshorten = 1) {
     input.active = false;
   });
 
-  /** Advances by dt seconds; tx, tz is the path's unit tangent at state.s. */
-  function update(dt, tx, tz) {
+  /** Advances by dt seconds; collide(x, z) returns [x, z] clear of the walls. */
+  function update(dt, collide) {
     let kx = 0, ky = 0;
     for (const code of held) {
       kx += dirs[code][0];
       ky += dirs[code][1];
     }
     const kl = Math.hypot(kx, ky);
-    let target = 0;
-    if (kl > 1e-3) {
-      const sx = tx, sy = tz * foreshorten;
-      const dot = (kx * sx + ky * sy) / (kl * (Math.hypot(sx, sy) || 1));
-      if (Math.abs(dot) > DEAD_ZONE) target = dot * state.pace;
-    }
+    const tx = kl > 1e-3 ? (kx / kl) * state.pace : 0;
+    const tz = kl > 1e-3 ? (ky / kl) * state.pace : 0;
     // Ease in and out: start like a first step, settle like a breath.
-    const rate = target === 0 ? 2.2 : 1.3;
-    state.v += (target - state.v) * (1 - Math.exp(-dt * rate));
-    if (Math.abs(state.v) < 1e-4 && target === 0) state.v = 0;
-    state.s += state.v * dt;
-    if (state.s <= 0 || state.s >= length) {
-      state.s = Math.min(Math.max(state.s, 0), length);
-      state.v = 0;
+    const k = 1 - Math.exp(-dt * (kl > 1e-3 ? 5 : 7));
+    state.vx += (tx - state.vx) * k;
+    state.vz += (tz - state.vz) * k;
+    if (Math.hypot(state.vx, state.vz) < 1e-4 && kl <= 1e-3) state.vx = state.vz = 0;
+
+    const dist = Math.hypot(state.vx, state.vz) * dt;
+    if (dist === 0) return state;
+    const n = Math.ceil(dist / MAX_STEP);
+    const x0 = state.x, z0 = state.z;
+    let x = x0, z = z0;
+    for (let i = 0; i < n; i++) {
+      [x, z] = collide(x + (state.vx * dt) / n, z + (state.vz * dt) / n);
     }
+    // Keep only the motion that happened, so pushing into a wall slides along it.
+    state.vx = (x - x0) / dt;
+    state.vz = (z - z0) / dt;
+    state.x = x;
+    state.z = z;
     return state;
   }
 
-  /** Back to the entrance of a path of the given length. */
-  function reset(newLength) {
-    length = newLength;
-    state.s = 0;
-    state.v = 0;
+  /** Stands still at (x, z). */
+  function reset(nx, nz) {
+    state.x = nx;
+    state.z = nz;
+    state.vx = state.vz = 0;
   }
 
   return { state, input, update, reset };
