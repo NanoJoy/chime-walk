@@ -5,10 +5,10 @@ import * as THREE from 'three';
 import { createEnvironment } from '../environment.js';
 import { earthTexture, grassTexture, gritTexture } from '../textures.js';
 import { rng } from '../noise.js';
-import { buildHex, wallStones } from './geometry.js';
+import { buildHex, courseStones } from './geometry.js';
 import { createWalker } from './walker.js';
 
-const CAMERA_PITCH = THREE.MathUtils.degToRad(22); // above the horizontal
+const CAMERA_PITCH = THREE.MathUtils.degToRad(30); // above the horizontal
 const LOOK_HEIGHT = 0.35; // aim at the walker's torso, not its feet
 const PATH_WIDTH = 1.5; // corridor width; the walker is about 0.6 tall
 const WALL_HEIGHT = 0.75; // dry-stone walls a little over head height
@@ -55,9 +55,10 @@ function ribbon(lab, halfWidth, y, everyN = 2) {
   return geo;
 }
 
-// The gritty wall filler: one box per wall segment, merged, with UVs in world
-// units (`tile` per repeat) so the grain is the same size on every face.
-function wallCores(walls, height, thick, tile = 0.6) {
+// The gritty wall filler: one box per wall segment, narrowing from `thick` at
+// the foot to `thickTop`, merged, with UVs in world units (`tile` per repeat)
+// so the grain is the same size on every face.
+function wallCores(walls, height, thick, thickTop, tile = 0.6) {
   const pos = [], nrm = [], uv = [], index = [];
   const quad = (corners, n, uvs) => {
     const base = pos.length / 3;
@@ -73,19 +74,20 @@ function wallCores(walls, height, thick, tile = 0.6) {
     if (len < 1e-6) continue;
     const dx = (bx - ax) / len, dz = (bz - az) / len; // along the wall
     const nx = dz, nz = -dx; // across it
-    const t = thick / 2;
-    // Corner at distance a along the wall, b across, height y.
-    const at = (a, b, y) => [ax + dx * a + nx * b, y, az + dz * a + nz * b];
+    const t = 1;
+    // Corner at distance a along the wall, b across (in half-thicknesses), height y.
+    const half = (y) => (thick + (thickTop - thick) * (y / height)) / 2;
+    const at = (a, b, y) => [ax + dx * a + nx * b * half(y), y, az + dz * a + nz * b * half(y)];
     quad([at(0, t, 0), at(len, t, 0), at(len, t, height), at(0, t, height)], [nx, 0, nz],
       [[0, 0], [len, 0], [len, height], [0, height]]);
     quad([at(len, -t, 0), at(0, -t, 0), at(0, -t, height), at(len, -t, height)], [-nx, 0, -nz],
       [[len, 0], [0, 0], [0, height], [len, height]]);
     quad([at(0, t, height), at(len, t, height), at(len, -t, height), at(0, -t, height)], [0, 1, 0],
-      [[0, 0], [len, 0], [len, thick], [0, thick]]);
+      [[0, 0], [len, 0], [len, thickTop], [0, thickTop]]);
     quad([at(0, -t, 0), at(0, t, 0), at(0, t, height), at(0, -t, height)], [-dx, 0, -dz],
-      [[0, 0], [thick, 0], [thick, height], [0, height]]);
+      [[0, 0], [thick, 0], [thickTop, height], [0, height]]);
     quad([at(len, t, 0), at(len, -t, 0), at(len, -t, height), at(len, t, height)], [dx, 0, dz],
-      [[0, 0], [thick, 0], [thick, height], [0, height]]);
+      [[0, 0], [thick, 0], [thickTop, height], [0, height]]);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -95,19 +97,30 @@ function wallCores(walls, height, thick, tile = 0.6) {
   return geo;
 }
 
-function rockGeometry(seed) {
+// A rough-split building stone: a unit box with its corners and edges knocked
+// back by random amounts and its faces bulged a little. Vertices are keyed by
+// position so the faces sharing a vertex move together and the stone stays closed.
+function blockGeometry(seed, segments = 2) {
   const r = rng(seed);
-  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const geo = new THREE.BoxGeometry(1, 1, 1, segments, segments, segments);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
-  // Displace by direction so shared vertices move together and the rock stays closed.
-  const offsets = new Map();
+  const moved = new Map();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
     const key = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
-    if (!offsets.has(key)) offsets.set(key, 0.78 + r() * 0.4);
-    v.multiplyScalar(offsets.get(key));
-    if (v.y < -0.2) v.y = -0.2 + (v.y + 0.2) * 0.3; // flatter underside, sits on the ground
+    if (!moved.has(key)) {
+      const onFaces = [v.x, v.y, v.z].filter((c) => Math.abs(c) > 0.499).length;
+      const out = v.clone();
+      if (onFaces === 3) out.multiplyScalar(segments > 1 ? 0.7 + r() * 0.2 : 0.88 + r() * 0.12); // knocked-off corner
+      else if (onFaces === 2) out.multiplyScalar(0.85 + r() * 0.15); // worn edge
+      else out.multiplyScalar(1.04 + r() * 0.08); // bulging face
+      out.x += (r() - 0.5) * 0.06;
+      out.y += (r() - 0.5) * 0.06;
+      out.z += (r() - 0.5) * 0.06;
+      moved.set(key, out);
+    }
+    v.copy(moved.get(key));
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   geo.computeVertexNormals();
@@ -165,7 +178,7 @@ export function createLabyrinth(renderer, pane, bus) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Materials and the rock shape are shared by every layout; geometry is per layout.
+  // Materials and the stone shapes are shared by every layout; geometry is per layout.
   const earth = earthTexture();
   const vergeMat = new THREE.MeshStandardMaterial({ map: earth, color: 0x9a9a72, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 });
   const pathMat = new THREE.MeshStandardMaterial({ map: earth, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 });
@@ -173,10 +186,13 @@ export function createLabyrinth(renderer, pane, bus) {
     color: 0xffe3b0, transparent: true, opacity: 0.45, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -3,
   });
-  const rock = rockGeometry(4);
+  const blocks = [11, 12, 13, 14, 15].map((seed) => blockGeometry(seed));
+  const slabs = [21, 22, 23].map((seed) => blockGeometry(seed, 1)); // cope stones: thin, so simpler
+  const shared = new Set([...blocks, ...slabs]);
   const stoneMat = new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true });
   const grit = gritTexture();
-  const coreMat = new THREE.MeshStandardMaterial({ map: grit, bumpMap: grit, bumpScale: 1.5, roughness: 1 });
+  // Dark, so the gaps between stones read as shadow rather than filler.
+  const coreMat = new THREE.MeshStandardMaterial({ map: grit, color: 0x5c5850, bumpMap: grit, bumpScale: 1.5, roughness: 1 });
   // Centre stone, which glows softly on arrival.
   const slabMat = new THREE.MeshStandardMaterial({ color: 0xbab3a4, roughness: 0.85, emissive: 0xffd9a0, emissiveIntensity: 0 });
 
@@ -205,48 +221,41 @@ export function createLabyrinth(renderer, pane, bus) {
     trailGeo.setDrawRange(0, 0);
     group.add(new THREE.Mesh(trailGeo, trailMat));
 
-    // Walls: a gritty core along each wall segment, so nothing shows through,
-    // dressed with columns of stones stacked to WALL_HEIGHT, smaller toward the top.
-    // About 15k stones at the largest size.
-    const core = new THREE.Mesh(wallCores(lab.walls, WALL_HEIGHT * 0.9, 0.14), coreMat);
+    // Walls: coursed dry stone round a dark core that fills the gaps between them.
+    // About 33k stones at the largest size.
+    const { stones, top } = courseStones(lab, { height: WALL_HEIGHT, seed: 7 + index });
+    const core = new THREE.Mesh(wallCores(lab.walls, top, 0.2, 0.12), coreMat);
     core.castShadow = core.receiveShadow = true;
     group.add(core);
 
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
+    const e = new THREE.Euler(0, 0, 0, 'YXZ'); // yaw onto the wall, then lean, then roll
     const sc = new THREE.Vector3();
     const p = new THREE.Vector3();
-
-    const r = rng(19 + index);
-    const placed = [];
-    for (const st of wallStones(lab, { spacing: 0.2, minGap: 0.15 })) {
-      let top = 0;
-      // Shrink toward the top, but never below 60%, so every column reaches the top.
-      for (let layer = 0; top < WALL_HEIGHT && layer < 12; layer++) {
-        const s = (0.13 + r() * 0.05) * Math.max(0.6, 1 - 0.1 * layer);
-        const sy = s * (0.5 + r() * 0.3);
-        const jitter = 0.03 + 0.01 * layer;
-        placed.push({
-          x: st.x + (r() - 0.5) * jitter * 2,
-          y: top + sy * 0.35,
-          z: st.z + (r() - 0.5) * jitter * 2,
-          sx: s * (0.9 + r() * 0.4), sy, sz: s * (0.9 + r() * 0.4),
-        });
-        top += sy * 1.35;
-      }
-    }
-    const stoneMesh = new THREE.InstancedMesh(rock, stoneMat, placed.length);
     const tint = new THREE.Color();
-    placed.forEach((st, i) => {
-      q.setFromEuler(e.set((r() - 0.5) * 0.3, r() * Math.PI * 2, (r() - 0.5) * 0.3));
-      m.compose(p.set(st.x, st.y, st.z), q, sc.set(st.sx, st.sy, st.sz));
-      stoneMesh.setMatrixAt(i, m);
-      const ochre = r() < 0.25;
-      stoneMesh.setColorAt(i, tint.setHSL(ochre ? 0.08 + r() * 0.03 : 0.1 + r() * 0.05, ochre ? 0.22 : 0.03 + r() * 0.07, 0.24 + r() * 0.2));
-    });
-    stoneMesh.castShadow = stoneMesh.receiveShadow = true;
-    group.add(stoneMesh);
+
+    // Deal the stones out among the shapes, then fill one instanced mesh per shape.
+    const r = rng(19 + index);
+    const byShape = new Map([...blocks, ...slabs].map((g) => [g, []]));
+    for (const st of stones) {
+      const pool = st.kind === 'cope' ? slabs : blocks;
+      byShape.get(pool[Math.floor(r() * pool.length)]).push(st);
+    }
+    for (const [geo, list] of byShape) {
+      if (!list.length) continue;
+      const mesh = new THREE.InstancedMesh(geo, stoneMat, list.length);
+      list.forEach((st, i) => {
+        q.setFromEuler(e.set(st.lean, st.yaw, st.roll));
+        m.compose(p.set(st.x, st.y, st.z), q, sc.set(st.sx, st.sy, st.sz));
+        mesh.setMatrixAt(i, m);
+        const ochre = r() < 0.2;
+        const light = (st.kind === 'cope' ? 0.2 : 0.25) + r() * 0.2;
+        mesh.setColorAt(i, tint.setHSL(ochre ? 0.08 + r() * 0.03 : 0.1 + r() * 0.05, ochre ? 0.22 : 0.03 + r() * 0.07, light));
+      });
+      mesh.castShadow = mesh.receiveShadow = true;
+      group.add(mesh);
+    }
 
     // A hexagonal slab filling the centre cell, turned to match its walls.
     const rad = lab.cellRadius * 0.82;
@@ -259,7 +268,7 @@ export function createLabyrinth(renderer, pane, bus) {
     if (layout) {
       scene.remove(layout);
       layout.traverse((o) => {
-        if (o.geometry && o.geometry !== rock) o.geometry.dispose();
+        if (o.geometry && !shared.has(o.geometry)) o.geometry.dispose();
         if (o.isInstancedMesh) o.dispose();
       });
     }
@@ -276,7 +285,7 @@ export function createLabyrinth(renderer, pane, bus) {
   }
 
   // Camera rig.
-  const view = { distance: 1.7 };
+  const view = { distance: 2.3 };
   const target = new THREE.Vector3();
   const pt = {};
   let yaw = 0;
