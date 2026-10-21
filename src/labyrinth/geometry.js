@@ -246,20 +246,10 @@ function smooth(pts, sigma) {
   });
 }
 
-/**
- * Stone positions for the walls, with stones pulled out of the walkway and
- * near-duplicates removed. Hex layouts line their wall segments; the classical
- * one lines both edges of the path plus the outer and centre rings.
- */
-export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13, seed = 3 } = {}) {
-  const { w, centre, outer, xs, zs, count } = lab;
-  let s = seed;
-  const rand = () => {
-    s = (s * 16807) % 2147483647;
-    return s / 2147483647;
-  };
-
-  // Spatial hash of the centreline, for distance-to-path queries.
+// Distance from (x, z) to the nearest centreline point, via a spatial hash.
+// Exact within half a path width, which is all the callers need.
+function pathDistance(lab) {
+  const { w, xs, zs, count } = lab;
   const cell = 0.5 * w;
   const key = (x, z) => `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
   const grid = new Map();
@@ -268,7 +258,7 @@ export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13,
     if (!grid.has(k)) grid.set(k, []);
     grid.get(k).push(i);
   }
-  function distToPath(x, z) {
+  return (x, z) => {
     const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
     let best = Infinity;
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
@@ -276,7 +266,23 @@ export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13,
       if (list) for (const i of list) best = Math.min(best, Math.hypot(xs[i] - x, zs[i] - z));
     }
     return best;
-  }
+  };
+}
+
+/**
+ * Stone positions for the walls, with stones pulled out of the walkway and
+ * near-duplicates removed. Hex layouts line their wall segments; the classical
+ * one lines both edges of the path plus the outer and centre rings.
+ */
+export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13, seed = 3 } = {}) {
+  const { w, centre, outer, count, xs, zs } = lab;
+  let s = seed;
+  const rand = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+
+  const distToPath = pathDistance(lab);
 
   const stones = [];
   const sCell = 0.1 * w;
@@ -341,4 +347,126 @@ export function wallStones(lab, { spacing = 0.19, jitter = 0.035, minGap = 0.13,
   }
 
   return stones;
+}
+
+/**
+ * Coursed dry-stone walls for hex layouts, after Miyata's stone wall patterns
+ * (SIGGRAPH 1990): each face of each wall segment is laid in courses, and each
+ * course is split into stones whose joints keep clear of the joints below
+ * ("one over two, two over one"), so no joint runs up the wall. Courses are
+ * shared by every segment so they line up where walls meet. The wall leans in
+ * (batter) from `baseHalf` to `topHalf` half-thickness, has the odd through
+ * stone crossing it, and is finished with a row of cope stones set on edge.
+ *
+ * Each stone is a box: centre (x, y, z), size (sx along the wall, sy up, sz
+ * across), yaw turning +x onto the wall, then lean (about the wall's
+ * direction) and roll (about its normal).
+ */
+export function courseStones(lab, {
+  height = 0.75, baseHalf = 0.12, topHalf = 0.075, firstCourse = 0.17, joint = 0.012, clearance = 0.24, seed = 7,
+} = {}) {
+  let s = seed;
+  const rand = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  const jit = (a) => (rand() - 0.5) * 2 * a;
+
+  // Courses, shrinking toward the top, scaled to fill up to the cope.
+  const body = height - 0.11;
+  const courses = [];
+  for (let v = 0, h = firstCourse; v < body; v += h, h = Math.max(0.07, h * 0.9)) {
+    courses.push(h * (0.85 + rand() * 0.3));
+  }
+  const fill = body / courses.reduce((a, b) => a + b, 0);
+  let v0 = 0;
+  const layers = courses.map((h) => {
+    const c = { v: v0, h: h * fill };
+    v0 += c.h;
+    return c;
+  });
+  const halfAt = (v) => baseHalf + (topHalf - baseHalf) * (v / body);
+  const batter = Math.atan((baseHalf - topHalf) / body);
+
+  const distToPath = pathDistance(lab);
+  const stones = [];
+  let dropped = 0;
+
+  for (const [ax, az, bx, bz] of lab.walls) {
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const dx = (bx - ax) / len, dz = (bz - az) / len;
+    const nx = -dz, nz = dx; // the box's +z, across the wall
+    const yaw = Math.atan2(-dz, dx);
+    const ext = baseHalf; // run past the ends so walls overlap at junctions
+    const u0 = -ext, u1 = len + ext;
+    const at = (u, b) => [ax + dx * u + nx * b, az + dz * u + nz * b];
+
+    // Keep the walkway clear, judged at the stone's outer face. Where the path
+    // cuts close past a wall end, face stones are pushed back into the wall a
+    // little before giving up on them.
+    const add = (st, faceU, faceB) => {
+      const out = Math.sign(faceB) || 1;
+      for (let back = 0; ; back += 0.01) {
+        const [fx, fz] = at(faceU, faceB - out * back);
+        if (distToPath(fx, fz) >= clearance) {
+          st.b -= out * back;
+          break;
+        }
+        if (st.kind !== 'face' || back >= 0.06) {
+          dropped++;
+          return;
+        }
+      }
+      const [x, z] = at(st.u, st.b);
+      stones.push({ x, y: st.y, z, yaw, lean: st.lean, roll: st.roll, sx: st.sx, sy: st.sy, sz: st.sz, kind: st.kind });
+    };
+
+    for (const side of [1, -1]) {
+      let below = [];
+      layers.forEach(({ v, h }, k) => {
+        const roll = jit(0.03); // courses run slightly off level
+        const half = halfAt(v + h / 2);
+        const joints = [];
+        let u = u0 + (k === 0 ? 0 : jit(0.3 * h) - 0.3 * h);
+        while (u < u1 - 1e-6) {
+          let e = u + h * (1.5 + rand() * 1.6);
+          // Stagger: step a joint that lands near one below clear of it.
+          for (const j of below) {
+            if (Math.abs(e - j) < 0.4 * h) e = j + (e < j ? -0.45 : 0.45) * h;
+          }
+          if (e - u < 0.7 * h) e = u + 0.9 * h;
+          if (u1 - e < 0.8 * h) e = u1; // no slivers at the end
+          joints.push(e);
+          const sx = e - u - joint;
+          const sy = h * (0.82 + rand() * 0.14);
+          const mid = (u + e) / 2;
+          const through = k > 0 && k < layers.length - 1 && side === 1 && rand() < (sx / 1.1) * 0.5;
+          const y = v + sy / 2 + jit(0.006);
+          if (through) {
+            const sz = 2 * half + 0.03 + rand() * 0.02;
+            add({ u: mid, b: 0, y, sx, sy, sz, lean: jit(0.04), roll: roll + jit(0.04), kind: 'through' }, mid, sz / 2);
+          } else {
+            const sz = half * (0.9 + rand() * 0.5);
+            const b = side * (half + jit(0.012) - sz / 2);
+            add({ u: mid, b, y, sx, sy, sz, lean: -side * batter + jit(0.06), roll: roll + jit(0.05), kind: 'face' }, mid, b + side * sz / 2);
+          }
+          u = e;
+        }
+        below = joints;
+      });
+    }
+
+    // Cope: thin slabs on edge across the top, leaning together a little.
+    const lean = 0.12 * (rand() < 0.5 ? -1 : 1);
+    for (let u = u0; u < u1 - 0.02;) {
+      const sx = 0.045 + rand() * 0.04;
+      const sy = 0.08 + rand() * 0.06;
+      const sz = 2 * topHalf * (1.05 + rand() * 0.3);
+      add({ u: u + sx / 2, b: jit(0.01), y: body + sy / 2 - 0.015, sx, sy, sz, lean: jit(0.05), roll: lean + jit(0.1), kind: 'cope' }, u + sx / 2, sz / 2);
+      u += sx + 0.006;
+    }
+  }
+
+  return { stones, top: body, dropped };
 }
